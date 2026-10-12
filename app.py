@@ -4,7 +4,7 @@ import logging
 import time
 
 from config import BUTTON_PIN, CAMERA_DEVICE, LED_PINS
-from filters import DEFAULT_FILTERS, FILTERS, apply_filters
+from filters import DEFAULT_FILTERS, FaceAccessories
 from hardware import LedLab
 from hardware.shutter import ShutterButton
 from photos import save_photo
@@ -12,9 +12,10 @@ from photos import save_photo
 
 def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_names=DEFAULT_FILTERS, button_pin=BUTTON_PIN):
     """Đếm mặt, cập nhật LED, terminal và cửa sổ webcam."""
-    if len(filter_names) != 3 or any(name not in FILTERS or name == "none" for name in filter_names):
-        raise ValueError("Chọn 3 filter: glasses, grayscale, blur hoặc pixelate")
-    filter_label = "+".join(filter_names)
+    if len(filter_names) != 3:
+        raise ValueError("Chọn 3 PNG theo thứ tự: mũ, nơ, kính")
+    accessories = FaceAccessories(filter_names) if not mock else None
+    filter_label = "+".join(accessories.names) if accessories else "mock"
     if button_pin in LED_PINS:
         raise ValueError("GPIO của nút bấm không được trùng GPIO LED")
     with ExitStack() as resources:
@@ -51,7 +52,7 @@ def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_names=DEFAULT_FIL
                 frame = camera.read()
                 boxes = detector.detect(frame)
                 count = len(boxes)
-                filtered = apply_filters(frame, boxes, filter_names)
+                filtered = accessories.apply(frame, boxes)
                 capture = shutter.consume_press()
             leds.update(count)
             lit = sum(leds.status()["leds"])
@@ -79,7 +80,7 @@ def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_names=DEFAULT_FIL
                     break
             if not mock and capture:
                 try:
-                    path = save_photo(filtered, "_".join(filter_names))
+                    path = save_photo(filtered, "hat_bow_glasses")
                     print(f"Đã lưu ảnh: {path}", flush=True)
                 except Exception:
                     logging.exception("Không lưu được ảnh; chương trình vẫn tiếp tục")
@@ -92,9 +93,9 @@ def main():
     parser.add_argument("--device", default=CAMERA_DEVICE, help="Thiết bị webcam, ví dụ /dev/video0")
     parser.add_argument("--no-preview", action="store_true", help="Chỉ dùng terminal, phù hợp SSH không có màn hình")
     parser.add_argument("--filter", "--filters", nargs=3,
-                        choices=[name for name in FILTERS if name != "none"],
                         default=DEFAULT_FILTERS,
-                        help="3 hiệu ứng theo thứ tự (mặc định: grayscale blur glasses)")
+                        metavar=("HAT_PNG", "BOW_PNG", "GLASSES_PNG"),
+                        help="3 PNG nền trong suốt: mũ, nơ, kính; mặc định hat.png bow.png glasses.png cạnh app.py")
     parser.add_argument("--button-pin", type=int, choices=range(28), default=BUTTON_PIN, help="GPIO BCM của nút chụp (mặc định: 25)")
     args = parser.parse_args()
     if args.button_pin in LED_PINS:

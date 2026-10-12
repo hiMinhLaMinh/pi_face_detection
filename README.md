@@ -51,52 +51,54 @@ python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 v4l2-ctl --list-devices
 v4l2-ctl -d /dev/video0 --list-formats-ext
-GPIOZERO_PIN_FACTORY=lgpio python app.py --filter grayscale blur glasses
+GPIOZERO_PIN_FACTORY=lgpio python app.py --filter hat.png bow.png glasses.png
 ```
 
 Webcam mặc định là `/dev/video0`. Nếu thiết bị thu hình ở node khác:
 
 ```bash
-GPIOZERO_PIN_FACTORY=lgpio python app.py --device /dev/video2 --filter grayscale pixelate glasses
+GPIOZERO_PIN_FACTORY=lgpio python app.py --device /dev/video2 --filter hat.png bow.png glasses.png
 ```
 
 Mặc định chương trình mở cửa sổ webcam. Nếu chạy bằng SSH terminal không có giao diện đồ họa, dùng:
 
 ```bash
-GPIOZERO_PIN_FACTORY=lgpio python app.py --no-preview --filter grayscale blur glasses
+GPIOZERO_PIN_FACTORY=lgpio python app.py --no-preview --filter hat.png bow.png glasses.png
 ```
 
 Trong cửa sổ, nhấn `S` để thử chụp bằng bàn phím, `Q` hoặc nút đóng để dừng. Sử dụng OpenCV có hỗ trợ GUI từ gói `python3-opencv`; bản `opencv-python-headless` không mở được cửa sổ.
 
-## Chọn filter và lưu ảnh
+## Phụ kiện PNG và lưu ảnh
 
-Chọn đúng 3 hiệu ứng bằng `--filter` lúc chạy. Mặc định: `grayscale blur glasses`. Các hiệu ứng được chồng lên cùng vùng mặt theo thứ tự nhập; cửa sổ mở ở kích thước 1280×720:
-
-| Filter | Hiệu ứng trong vùng mặt |
-|---|---|
-| `glasses` | Kính đen; vị trí ước lượng theo khung mặt |
-| `grayscale` | Đen trắng |
-| `blur` | Làm mờ |
-| `pixelate` | Ô pixel lớn |
-
-Filter tác động lên các vùng mặt đã phát hiện, phần nền giữ nguyên. Kính không dùng tọa độ mắt, nên có thể lệch khi mặt nghiêng. Khi không thấy mặt, ảnh chụp giữ nguyên.
-
-Nhấn nút GPIO25 hoặc phím `S` khi cửa sổ đang được chọn. Ảnh lưu là cả khung hình đã áp dụng filter, không kèm khung xanh, số đếm hoặc chữ hướng dẫn. Ví dụ:
+Đặt 3 ảnh PNG **8-bit RGBA có nền trong suốt** cạnh `app.py`:
 
 ```text
-photos/20261012_143012_123456_grayscale_blur_glasses_a1b2c3d4.jpg
+face_detection_raspberry/
+├── app.py
+├── hat.png       # Mũ
+├── bow.png       # Nơ
+├── glasses.png   # Kính
+└── photos/
 ```
 
-Đường dẫn dựa trên vị trí `app.py`, không dựa trên thư mục terminal hiện tại. Tên chứa thời gian và mã ngẫu nhiên để tránh ghi đè; terminal báo đường dẫn sau khi lưu thành công. Nếu lưu lỗi, terminal báo lỗi và chương trình tiếp tục đếm mặt/bật LED. `.gitignore` bỏ qua ảnh chụp.
+Thứ tự sau `--filter` là **mũ, nơ, kính**; tên file có thể khác:
 
-Không phải mọi `/dev/video*` đều là node thu hình; chọn node của webcam có danh sách định dạng ảnh. Đóng ứng dụng khác đang dùng webcam. Không cần Picamera2, Flask, web server, servo hoặc cảm biến siêu âm.
+```bash
+GPIOZERO_PIN_FACTORY=lgpio python app.py --filter mu.png no.png kinh.png
+```
+
+Hoặc dùng tên mặc định `hat.png`, `bow.png`, `glasses.png` rồi chạy `python app.py`. Đường dẫn tương đối được tìm cạnh `app.py`, không phụ thuộc thư mục terminal. Ảnh phụ kiện không có sẵn trong dự án; cần thêm PNG trước khi chạy thật.
+
+Cả 3 phụ kiện được chồng lên mỗi khuôn mặt: mũ trên đầu, nơ dưới cằm, kính ở vùng mắt. Ảnh được giữ tỷ lệ và ghép theo alpha; phần vượt biên khung hình được cắt. Vị trí dựa trên khung Haar Cascade, không có landmark, nên có thể lệch khi mặt nghiêng. Có thể chỉnh tỷ lệ và vị trí trong `filters.py`.
+
+Cửa sổ mặc định 1280×720. Nút GPIO25 hoặc phím `S` lưu cả khung ảnh có 3 phụ kiện vào `photos/` cạnh `app.py`, không kèm khung xanh hay chữ. Tên ảnh có thời gian và mã riêng để tránh ghi đè. Nếu lưu lỗi, chương trình báo lỗi và tiếp tục chạy. `.gitignore` bỏ qua ảnh chụp.
 
 Ví dụ terminal (chỉ in dòng mới khi số mặt thay đổi):
 
 ```text
 Webcam USB: /dev/video0
 Có 5 LED. Nhấn Q trong cửa sổ, đóng cửa sổ hoặc Ctrl+C để dừng.
-Filters: grayscale+blur+glasses | Nút chụp: GPIO25 | S: chụp trong cửa sổ
+Filters: hat.png+bow.png+glasses.png | Nút chụp: GPIO25 | S: chụp trong cửa sổ
 Khuôn mặt: 0 | LED sáng: 0/5
 Khuôn mặt: 2 | LED sáng: 2/5
 Khuôn mặt: 6 | LED sáng: 5/5
@@ -120,7 +122,7 @@ Số mặt giả lập bắt đầu từ 0, tăng mỗi 2 giây, lần lượt 0
 app.py                   Vòng lặp, kết quả terminal và cửa sổ có khung mặt
 camera.py                Đọc webcam USB qua OpenCV VideoCapture
 detector.py              Ảnh BGR → xám → cân bằng histogram → Haar Cascade
-filters.py               Áp dụng filter vào các vùng mặt trên bản sao ảnh
+filters.py               Tải PNG một lần, ghép mũ/nơ/kính theo alpha
 photos.py                Lưu ảnh JPEG có tên duy nhất trong photos/
 photos/                  Thư mục ảnh chụp
 config.py                GPIO LED/nút, độ phân giải và thiết bị webcam
@@ -135,14 +137,12 @@ requirements-mock.txt    Ghi chú: mô phỏng chỉ dùng thư viện chuẩn
 
 Luồng chạy: `webcam → phát hiện mặt trên ảnh gốc → cập nhật LED → áp dụng filter → hiển thị / lưu khi có yêu cầu`. Callback nút chỉ gửi yêu cầu, vòng lặp camera xử lý và lưu ảnh. `PiCamera` giữ tên class từ phiên bản cũ nhưng hiện đọc webcam USB.
 
-## Kiểm tra và lỗi thường gặp
+## Lỗi thường gặp
 
-```bash
-python3 -m unittest discover -s tests -v
-```
+Phiên bản phụ kiện PNG chưa chạy unittest; các test trong `tests/` thuộc phiên bản hiệu ứng trước và chưa cập nhật. Kiểm tra webcam, LED, nút và phụ kiện trên Pi trước khi trình bày.
 
-Test dùng thiết bị giả; các test xử lý ảnh thật cần OpenCV và NumPy, nếu thiếu sẽ được bỏ qua. Cần thử camera, LED và nút trên Pi thật trước buổi trình bày.
-
+- Thiếu PNG: đặt ảnh đúng tên cạnh `app.py` hoặc truyền tên qua `--filter`.
+- PNG không hợp lệ: dùng PNG 8-bit RGBA có alpha; nền trắng không phải nền trong suốt.
 - Không mở được webcam: kiểm tra node, quyền truy cập và ứng dụng khác đang dùng camera.
 - Không đọc được ảnh: kiểm tra định dạng webcam hỗ trợ; thử bỏ thiết lập FPS trong `camera.py` hoặc giảm độ phân giải trong `config.py`.
 - Thiếu cascade: cài `opencv-data`, hoặc đặt `haarcascade_frontalface_default.xml` vào thư mục `models/` cạnh `app.py`.
