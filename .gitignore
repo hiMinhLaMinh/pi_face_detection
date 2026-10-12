@@ -19,6 +19,8 @@ htmlcov/
 *.log
 webcam_test.jpg
 camera_test.jpg
+photos/*
+!photos/.gitkeep
 
 # File hệ điều hành và trình soạn thảo
 .DS_Store
