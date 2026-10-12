@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi Face Labs</title>
+<style>
+body{margin:0;background:#edf2f8;color:#142238;font-family:system-ui,sans-serif}main{max-width:960px;margin:32px auto;padding:20px}h1{margin-bottom:6px}.card{background:white;border-radius:18px;padding:22px;margin-top:20px;box-shadow:0 8px 24px #1422380d}button{padding:12px 18px;border:0;border-radius:10px;background:#1c59c9;color:white;cursor:pointer;margin:6px 8px 6px 0}button:disabled{opacity:.5}img{width:100%;background:#142238;border-radius:12px;min-height:200px}#count{font-size:44px;font-weight:700}.led{display:inline-block;width:24px;height:24px;border-radius:50%;background:#cbd4e2;margin:6px}.on{background:#33ca83;box-shadow:0 0 10px #33ca8366}#error{color:#b82828;white-space:pre-wrap}.muted{color:#64748b}
+</style>
+<main><h1>Pi Face Labs</h1><div class="muted">Camera v3 · Phát hiện khuôn mặt · Điều khiển phần cứng</div>
+<section class="card"><button data-lab="lab1">Lab 1 — 5 LED</button><button data-lab="lab2">Lab 2 — Servo</button><p id="mode">Đang kết nối…</p><div id="error" role="alert"></div></section>
+<section class="card"><img id="video" alt="Luồng camera với khung khuôn mặt"></section>
+<section class="card"><span id="count">0</span> khuôn mặt<div id="hardware"></div><p class="muted">Lab 1: sáng tối đa 5 LED. Lab 2: có mặt VÀ khoảng cách &lt; 10 cm → 90°; còn lại → 0°.</p><small id="updated"></small></section></main>
+<script>
+const video=document.getElementById('video');let streaming=false;
+async function refresh(){
+ try{const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw Error('Không đọc được trạng thái');const s=await r.json();
+ document.getElementById('count').textContent=s.faces;
+ document.getElementById('mode').textContent=(s.mock?'MÔ PHỎNG · ':'')+s.lab+' · '+(s.running?'Đang hoạt động':'Đã dừng / đang khởi động');
+ document.getElementById('error').textContent=s.error||'';
+ const hw=document.getElementById('hardware');hw.replaceChildren();
+ if(s.hardware.leds){s.hardware.leds.forEach((on,i)=>{let e=document.createElement('span');e.className='led'+(on?' on':'');e.title='LED '+(i+1);hw.append(e);});}
+ if(s.hardware.servo_angle!==undefined){
+ hw.textContent='Góc servo: '+s.hardware.servo_angle+'°';
+ let detail=document.createElement('p');
+ detail.textContent='Khoảng cách: '+(s.hardware.distance_valid?s.hardware.distance_cm+' cm':'Không đo được')+
+ ' · Có mặt: '+(s.hardware.face_present?'Có':'Không')+
+ ' · Điều kiện: '+(s.hardware.condition_met?'Đạt':'Chưa đạt');hw.append(detail);
+}
+ document.getElementById('updated').textContent=s.updated?'Cập nhật: '+new Date(s.updated*1000).toLocaleTimeString():'';
+ if(s.running&&!streaming){video.src='/video_feed?t='+Date.now();streaming=true;}
+ if(!s.running){video.removeAttribute('src');streaming=false;}
+ }catch(e){document.getElementById('error').textContent='Mất kết nối: '+e.message;}
+}
+video.onerror=()=>{streaming=false;};
+document.querySelectorAll('button').forEach(b=>b.onclick=async()=>{
+ const buttons=document.querySelectorAll('button');buttons.forEach(x=>x.disabled=true);
+ try{const r=await fetch('/api/lab',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lab:b.dataset.lab})});const s=await r.json();if(!r.ok)throw Error(s.error);await refresh();}
+ catch(e){document.getElementById('error').textContent=e.message;alert(e.message);}
+ finally{buttons.forEach(x=>x.disabled=false);}
+});
+async function poll(){await refresh();setTimeout(poll,700);}poll();
+</script></html>

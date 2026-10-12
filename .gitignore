@@ -1,0 +1,29 @@
+# Python cache và môi trường ảo
+__pycache__/
+*.py[cod]
+.venv/
+.venv-mock/
+venv/
+env/
+
+# Cache kiểm thử và báo cáo coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Cấu hình riêng và file sinh ra khi chạy
+.env
+.env.*
+!.env.example
+*.log
+webcam_test.jpg
+camera_test.jpg
+
+# File hệ điều hành và trình soạn thảo
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
