@@ -1,7 +1,7 @@
 from config import LED_PINS
 
 class LedLab:
-    name = "Lab 1 — Đếm mặt và bật LED"
+    name = "Đếm mặt và bật LED"
 
     def __init__(self, mock=False):
         self.leds = []

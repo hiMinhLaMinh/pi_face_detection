@@ -1,84 +1,75 @@
-import time
+import io
+import sys
 import unittest
-from app import create_app
-from service import FaceService
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
-class LabTests(unittest.TestCase):
-    def setUp(self):
-        self.service = FaceService(mock=True)
-        self.client = create_app(self.service).test_client()
+from app import run
+from config import LED_PINS
+from hardware import LedLab
 
-    def tearDown(self):
-        self.service.close()
 
-    def test_rules_and_switch(self):
-        for count in range(7):
-            self.service.hardware.update(count)
-            self.assertEqual(sum(self.service.hardware.status()['leds']), min(count, 5))
-        self.service.select_lab('lab2')
-        self.service.hardware.mock_distance_provider = lambda: 5.0
-        for count in range(7):
-            self.service.hardware.update(count)
-            self.assertEqual(self.service.hardware.status()['servo_angle'], 90 if count else 0)
-        self.service.select_lab('lab1')
-        self.assertEqual(sum(self.service.hardware.status()['leds']), 0)
+class LedTests(unittest.TestCase):
+    def test_led_count_and_reset(self):
+        lab = LedLab(mock=True)
+        for count in range(len(LED_PINS) + 2):
+            lab.update(count)
+            expected = min(count, len(LED_PINS))
+            self.assertEqual(lab.status()["leds"],
+                             [i < expected for i in range(len(LED_PINS))])
+        lab.update(0)
+        self.assertFalse(any(lab.status()["leds"]))
 
-    def test_distance_and_face_gate(self):
-        self.service.select_lab('lab2')
-        lab = self.service.hardware
-        for distance in (None, float('nan'), float('inf'), -1, 0, 5, 9.99, 10, 10.01, 15, 401):
-            for faces in (0, 1, 5):
-                with self.subTest(distance=distance, faces=faces):
-                    lab.mock_distance_provider = lambda: distance
-                    lab.update(faces)
-                    expected = 90 if faces > 0 and distance in (5, 9.99) else 0
-                    self.assertEqual(lab.status()['servo_angle'], expected)
-        # Sau khi đã mở, mất dữ liệu khoảng cách phải về 0°.
-        lab.mock_distance_provider = lambda: 5
-        lab.update(1)
-        self.assertEqual(lab.angle, 90)
-        lab.mock_distance_provider = lambda: None
-        lab.update(1)
-        self.assertEqual(lab.angle, 0)
-        self.assertFalse(lab.status()['distance_valid'])
+    def test_gpio_outputs_and_shutdown(self):
+        pins = [Mock() for _ in LED_PINS]
+        with patch.dict(sys.modules, {"gpiozero": SimpleNamespace(LED=Mock(side_effect=pins))}):
+            lab = LedLab()
+        lab.update(3)
+        self.assertEqual([pin.value for pin in pins],
+                         [i < 3 for i in range(len(LED_PINS))])
+        lab.close()
+        for pin in pins:
+            pin.off.assert_called_once()
+            pin.close.assert_called_once()
 
-    def test_ultrasonic_timeout(self):
-        from hardware.ultrasonic import Ultrasonic
-        class Pin:
-            value = False
-            def on(self): self.value = True
-            def off(self): self.value = False
-        sensor = Ultrasonic.__new__(Ultrasonic)
-        sensor.trigger = Pin()
-        sensor.echo = Pin()
-        sensor.last_trigger = 0
-        start = time.monotonic()
-        self.assertIsNone(sensor.read_cm())  # Không nhận Echo.
-        self.assertLess(time.monotonic() - start, 0.5)
-        self.assertFalse(sensor.trigger.value)
-        sensor.echo.value = True  # Echo giữ HIGH.
-        self.assertIsNone(sensor.read_cm())
+    def test_camera_counts_reach_leds_and_failure_cleans_up(self):
+        camera = Mock()
+        camera.read.side_effect = ["frame1", "frame2", RuntimeError("camera disconnected")]
+        detector = Mock()
+        detector.detect.side_effect = [[(0, 0, 40, 40)] * 3, []]
+        lab = LedLab(mock=True)
+        with (
+            patch.dict(sys.modules, {
+                "camera": SimpleNamespace(PiCamera=Mock(return_value=camera)),
+                "detector": SimpleNamespace(FaceDetector=Mock(return_value=detector)),
+            }),
+            patch("app.LedLab", return_value=lab),
+            patch.object(lab, "update", wraps=lab.update) as update,
+            patch.object(lab, "close", wraps=lab.close) as close,
+            patch("app.time.sleep"),
+            patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "camera disconnected"):
+                run(device="/dev/video2")
+            self.assertEqual([call.args[0] for call in update.call_args_list], [3, 0])
+            self.assertIn("Khuôn mặt: 3 | LED sáng: 3/", output.getvalue())
+            self.assertIn("Khuôn mặt: 0 | LED sáng: 0/", output.getvalue())
+            close.assert_called_once()
+        camera.close.assert_called_once()
+        self.assertFalse(any(lab.status()["leds"]))
 
-    def test_api_validation(self):
-        self.assertEqual(self.client.get('/').status_code, 200)
-        for body in ({'lab':'x'}, {'lab':[]}, [], None):
-            self.assertEqual(self.client.post('/api/lab', json=body).status_code, 400)
-        response = self.client.post('/api/lab', json={'lab':'lab2'})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json['hardware']['servo_angle'], 0)
-        self.assertEqual(self.client.get('/video_feed').status_code, 503)
+    def test_ctrl_c_cleans_up_mock_leds(self):
+        lab = LedLab(mock=True)
+        with (
+            patch("app.LedLab", return_value=lab),
+            patch.object(lab, "close", wraps=lab.close) as close,
+            patch("app.time.sleep", side_effect=KeyboardInterrupt),
+            patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                run(mock=True)
+            close.assert_called_once()
 
-    def test_mock_stream(self):
-        self.service.start()
-        deadline = time.monotonic() + 5
-        while self.service.snapshot()['updated'] is None and time.monotonic() < deadline:
-            time.sleep(.02)
-        self.assertTrue(self.service.snapshot()['running'], self.service.snapshot())
-        stream = self.client.get('/video_feed', buffered=False)
-        self.assertEqual(stream.status_code, 200)
-        self.assertIn(b'Content-Type: image/jpeg', next(iter(stream.response)))
-        stream.close()
-        self.assertEqual(self.client.post('/api/lab', json={'lab':'lab2'}).status_code, 200)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

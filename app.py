@@ -1,53 +1,56 @@
 import argparse
+from contextlib import ExitStack
 import logging
-from flask import Flask, Response, jsonify, render_template, request
-from hardware import LABS
-from service import FaceService
-from config import PORT
+import time
 
-def create_app(service):
-    app = Flask(__name__)
+from config import CAMERA_DEVICE, LED_PINS
+from hardware import LedLab
 
-    @app.get("/")
-    def index():
-        return render_template("index.html")
 
-    @app.get("/api/status")
-    def status():
-        return jsonify(service.snapshot())
+def run(mock=False, device=CAMERA_DEVICE):
+    """Đếm khuôn mặt, cập nhật LED và in kết quả khi số mặt thay đổi."""
+    with ExitStack() as resources:
+        leds = LedLab(mock=mock)
+        resources.callback(leds.close)
+        if not mock:
+            from camera import PiCamera
+            from detector import FaceDetector
+            camera = PiCamera(device=device)
+            resources.callback(camera.close)
+            detector = FaceDetector()
 
-    @app.post("/api/lab")
-    def select_lab():
-        data = request.get_json(silent=True)
-        lab = data.get("lab") if isinstance(data, dict) else None
-        if not isinstance(lab, str) or lab not in LABS:
-            return jsonify(error="Lab phải là lab1 hoặc lab2"), 400
-        try:
-            service.select_lab(lab)
-        except Exception:
-            logging.exception("Cannot select lab")
-            return jsonify(error="Không khởi tạo được GPIO; kiểm tra terminal và dây nối"), 503
-        return jsonify(service.snapshot())
+        print("MÔ PHỎNG" if mock else f"Webcam USB: {device}", flush=True)
+        print(f"Có {len(LED_PINS)} LED. Nhấn Ctrl+C để dừng.", flush=True)
+        started = time.monotonic()
+        previous_count = None
+        while True:
+            if mock:
+                # Mỗi mức tồn tại 2 giây; thử cả trường hợp vượt số LED.
+                count = int((time.monotonic() - started) / 2) % (len(LED_PINS) + 2)
+            else:
+                count = len(detector.detect(camera.read()))
+            leds.update(count)
+            if count != previous_count:
+                lit = sum(leds.status()["leds"])
+                print(f"Khuôn mặt: {count} | LED sáng: {lit}/{len(LED_PINS)}", flush=True)
+                previous_count = count
+            time.sleep(0.06)
 
-    @app.get("/video_feed")
-    def video_feed():
-        if not service.snapshot()["running"]:
-            return "Camera chưa sẵn sàng; xem /api/status", 503
-        return Response(service.stream(),
-                        mimetype="multipart/x-mixed-replace; boundary=frame")
-    return app
+
+def main():
+    parser = argparse.ArgumentParser(description="Đếm mặt từ webcam USB và bật LED")
+    parser.add_argument("--mock", action="store_true", help="Mô phỏng cả camera và LED")
+    parser.add_argument("--device", default=CAMERA_DEVICE, help="Thiết bị webcam, ví dụ /dev/video0")
+    args = parser.parse_args()
+    try:
+        run(mock=args.mock, device=args.device)
+    except KeyboardInterrupt:
+        print("\nĐã dừng và giải phóng thiết bị.")
+    except Exception:
+        logging.exception("Không chạy được; kiểm tra webcam, GPIO và thư viện")
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mock", action="store_true", help="Mô phỏng, không cần Pi")
-    parser.add_argument("--lab", choices=list(LABS), default="lab1")
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO)
-    service = FaceService(mock=args.mock, lab=args.lab)
-    try:
-        service.start()
-        # Không dùng reloader: tránh mở camera / GPIO hai lần.
-        create_app(service).run(host="0.0.0.0", port=PORT,
-                                threaded=True, debug=False, use_reloader=False)
-    finally:
-        service.close()
+    raise SystemExit(main())

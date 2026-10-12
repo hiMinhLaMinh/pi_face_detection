@@ -1,14 +1,14 @@
 import cv2
-from config import WIDTH, HEIGHT
+from config import CAMERA_DEVICE, WIDTH, HEIGHT
 
 class PiCamera:
-    """Đọc webcam USB; giữ tên class để tương thích với service.py."""
+    """Mở, đọc và đóng webcam USB bằng OpenCV."""
 
-    def __init__(self):
-        self.camera = cv2.VideoCapture("/dev/video0", cv2.CAP_V4L2)
+    def __init__(self, device=CAMERA_DEVICE):
+        self.camera = cv2.VideoCapture(device, cv2.CAP_V4L2)
         try:
             if not self.camera.isOpened():
-                raise RuntimeError("Không mở được webcam USB /dev/video0")
+                raise RuntimeError(f"Không mở được webcam USB {device}")
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
             self.camera.set(cv2.CAP_PROP_FPS, 15)

@@ -1,135 +1,109 @@
-# Raspberry Pi Face Labs — Camera Module 3
+# Đếm khuôn mặt bằng webcam USB và bật LED
 
-Dự án học tập: phát hiện và đếm khuôn mặt nhìn tương đối thẳng bằng Haar Cascade OpenCV. Không nhận diện danh tính. Không cần huấn luyện model. Góc nghiêng, che mặt hoặc ánh sáng kém có thể làm đếm sai; không dùng số đếm này cho hệ thống an ninh.
+Chương trình chạy trên Raspberry Pi, dùng OpenCV Haar Cascade để phát hiện khuôn mặt và in kết quả ra terminal. Không nhận diện danh tính và không cần huấn luyện model.
 
-## 1. Quy tắc hai lab
+## Quy tắc
 
-Lab 1 giữ nguyên: số mặt 0–5 tương ứng số LED sáng; >5 mặt sáng cả 5.
+- 0 mặt: tắt tất cả LED.
+- 1–5 mặt: bật tương ứng 1–5 LED đầu tiên.
+- Trên 5 mặt: sáng cả 5 LED; terminal vẫn in số mặt thực tế phát hiện được.
+- Ctrl+C hoặc lỗi xử lý: đóng webcam, tắt LED và giải phóng GPIO.
 
-| Có khuôn mặt | Khoảng cách siêu âm | Góc servo Lab 2 |
+Ánh sáng kém, mặt nghiêng, che mặt hoặc mặt quá nhỏ có thể làm đếm sai. Số đếm có thể dao động giữa các khung hình.
+
+## Đấu dây
+
+Tắt nguồn Pi trước khi đấu GPIO. Cắm webcam vào cổng USB.
+
+| LED | GPIO BCM | Chân vật lý Pi 4 |
 |---|---|---|
-| Không | Bất kỳ | 0° |
-| Có | Nhỏ hơn 10 cm | 90° |
-| Có | Đúng 10 cm hoặc lớn hơn | 0° |
-| Có | Không đo được / số đo không hợp lệ | 0° |
+| 1 | 17 | 11 |
+| 2 | 27 | 13 |
+| 3 | 22 | 15 |
+| 4 | 23 | 16 |
+| 5 | 24 | 18 |
 
-Servo giữ góc, không quay qua lại liên tục. Khi mất một trong hai điều kiện thì về 0°. Ngưỡng dùng số đo gốc, giao diện làm tròn 2 chữ số nên 9.999 cm có thể hiển thị 10.00 nhưng vẫn nhỏ hơn 10. Cảm biến chỉ phát hiện vật cản gần, không xác định vật đó là người có khuôn mặt trong camera. Đặt cảm biến và camera phù hợp mục đích bài lab; một người ở xa và vật cản gần vẫn có thể thỏa cả hai điều kiện.
+Mỗi LED: GPIO → điện trở 220–330Ω → anode LED (chân dài); cathode (chân ngắn) → GND chung (ví dụ chân vật lý 6). Không nối LED trực tiếp vào GPIO khi thiếu điện trở.
 
-Nút trên web chọn một lab hoạt động tại một thời điểm. Lab trước được đóng trước khi khởi tạo lab mới. Khi thoát ứng dụng, servo ngắt PWM, không bảo đảm cơ khí về 0°.
+Số LED được giới hạn bởi số chân trong `LED_PINS` ở `config.py`. Muốn hiển thị nhiều hơn 5 mặt bằng LED, cần thêm LED, điện trở và chân GPIO phù hợp vào danh sách.
 
-## 2. Phần cứng và đấu dây (Raspberry Pi 4)
+## Cài và chạy trên Raspberry Pi
 
-Cần Pi 4, Camera Module 3 + cáp CSI 15 chân phù hợp Pi 4, 5 LED, 5 điện trở 220–330Ω, servo SG90, HC-SR04, điện trở chia áp 1kΩ và 2kΩ, nguồn 5V riêng phù hợp servo, breadboard và dây. Pi 5/Zero dùng đầu cáp camera khác.
-
-Tắt Pi và rút nguồn trước khi nối camera/GPIO. Cắm Camera v3 vào cổng CSI CAMERA, không vào cổng DISPLAY. Lắp cáp đúng chiều tiếp điểm theo hướng dẫn phần cứng của Pi.
-
-| Thiết bị | GPIO BCM | Chân vật lý Pi 4 |
-|---|---|---|
-| LED 1 | 17 | 11 |
-| LED 2 | 27 | 13 |
-| LED 3 | 22 | 15 |
-| LED 4 | 23 | 16 |
-| LED 5 | 24 | 18 |
-| Tín hiệu servo (cam/vàng) | 18 | 12 |
-| HC-SR04 Trigger | 5 | 29 |
-| HC-SR04 Echo qua chia áp | 6 | 31 |
-| GND chung | GND | 6 (hoặc chân GND khác) |
-
-Mỗi LED: GPIO → điện trở → anode LED (chân dài); cathode LED (chân ngắn) → GND. Servo: dây đỏ → +5V nguồn ngoài, dây nâu/đen → GND nguồn ngoài. Nối GND nguồn ngoài với GND Pi. Không đưa +5V vào GPIO và không cấp servo từ chân 3.3V. Có thể nối cả 5 LED, servo và siêu âm; các thiết bị dùng GPIO khác nhau. Điều chỉnh xung servo trong config.py theo thông số servo; giảm phạm vi nếu servo chạm giới hạn cơ khí.
-
-### Đấu HC-SR04
-
-- VCC → 5V Pi (chân vật lý 2 hoặc 4); GND → GND chung.
-- TRIG → GPIO5 (chân vật lý 29).
-- ECHO → điện trở 1kΩ → điểm nối GPIO6 (chân vật lý 31).
-- Từ điểm nối GPIO6 → điện trở 2kΩ → GND.
-
-Không nối Echo 5V trực tiếp vào Pi. Chia áp 1kΩ/2kΩ giảm Echo xuống khoảng 3.33V. Nếu đã dùng GPIO23/24 cho siêu âm trong bài khác, đổi dây theo bảng để tránh trùng LED 4/5.
-
-## 3. Cài trên Pi
-
-Khuyến nghị Raspberry Pi OS 64-bit có camera stack hoạt động. Trên Debian có repository Raspberry Pi như máy của bạn, kiểm tra các gói sau có sẵn. Không cài đè OpenCV/Picamera2 bằng pip trong môi trường chạy thật.
+Với Raspberry Pi OS 64-bit:
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-picamera2 python3-opencv opencv-data python3-flask python3-gpiozero python3-lgpio python3-numpy rpicam-apps
-rpicam-hello --list-cameras
-rpicam-hello -t 5000
+sudo apt install -y git python3-venv python3-opencv opencv-data python3-gpiozero python3-lgpio python3-numpy v4l-utils
 ```
 
-Nếu không có màn hình, chỉ cần `rpicam-hello --list-cameras`; thử `rpicam-still --nopreview -o camera_test.jpg`. Cần thấy camera IMX708. Đóng các ứng dụng camera khác trước khi chạy.
-
-Chép thư mục dự án đã giải nén vào Pi, ví dụ `~/raspberry_face_labs`:
+Clone repo của nhóm và vào thư mục chứa `app.py`, sau đó chạy:
 
 ```bash
-cd ~/raspberry_face_labs
 python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
-GPIOZERO_PIN_FACTORY=lgpio python app.py --lab lab1
+v4l2-ctl --list-devices
+v4l2-ctl -d /dev/video0 --list-formats-ext
+GPIOZERO_PIN_FACTORY=lgpio python app.py
 ```
 
-Mở `http://<IP-cua-Pi>:5000` trên máy cùng mạng. Dùng `hostname -I` để xem IP Pi. Nhấn Ctrl+C ở terminal để thoát. Có thể chạy trực tiếp Lab 2:
+Webcam mặc định là `/dev/video0`. Nếu thiết bị thu hình ở node khác:
 
 ```bash
-GPIOZERO_PIN_FACTORY=lgpio python app.py --lab lab2
+GPIOZERO_PIN_FACTORY=lgpio python app.py --device /dev/video2
 ```
 
-Không chạy nhiều tiến trình hoặc nhiều worker vì chúng sẽ tranh camera và GPIO. Flask ở đây dành cho lab trong mạng nội bộ, không mở port ra Internet. Servo dùng PWM phần mềm qua lgpio nên có thể rung dưới tải; nếu cần ổn định hơn có thể thay driver bằng PCA9685 trong riêng file lab2_servo.py.
+Không phải mọi `/dev/video*` đều là node thu hình; chọn node của webcam có danh sách định dạng ảnh. Đóng ứng dụng khác đang dùng webcam. Không cần Picamera2, Flask, web server, servo hoặc cảm biến siêu âm.
 
-## 4. Mô phỏng không cần Pi
+Ví dụ terminal (chỉ in dòng mới khi số mặt thay đổi):
 
-Trên PC có Python (Windows dùng `python` thay `python3`):
+```text
+Webcam USB: /dev/video0
+Có 5 LED. Nhấn Ctrl+C để dừng.
+Khuôn mặt: 0 | LED sáng: 0/5
+Khuôn mặt: 2 | LED sáng: 2/5
+Khuôn mặt: 6 | LED sáng: 5/5
+```
+
+Chạy thật cần quyền truy cập webcam và GPIO. Kiểm tra nhóm `video`/`gpio` của tài khoản nếu gặp lỗi quyền truy cập. Không dùng `pip` cài đè OpenCV trong môi trường chạy thật này.
+
+## Mô phỏng trên máy tính
+
+Không cần cài thêm thư viện hoặc có webcam/GPIO:
 
 ```bash
-python3 -m venv .venv-mock
-source .venv-mock/bin/activate
-pip install -r requirements-mock.txt
-python app.py --mock
+python3 app.py --mock
 ```
 
-Windows PowerShell kích hoạt bằng `.venv-mock\Scripts\Activate.ps1`. Mở http://localhost:5000. Số mặt GIẢ LẬP tuần tự 0–6, mỗi mức 2 giây; khoảng cách Lab 2 giả lập luân phiên 5 cm / 15 cm mỗi 4 giây; không đọc camera và không tạo GPIO. Kiểm tra giao diện, chuyển lab, LED/servo mô phỏng.
+Số mặt giả lập bắt đầu từ 0, tăng mỗi 2 giây, lần lượt 0–6 rồi lặp lại với cấu hình 5 LED. Đây là kiểm tra logic và terminal, không phải phát hiện mặt từ camera thật.
 
-## 5. Cấu trúc và luồng
+## Cấu trúc và luồng
 
-- app.py: Flask, trả HTML, JSON, luồng JPEG; điểm khởi chạy.
-- templates/index.html: ảnh camera, số mặt, LED/góc servo, nút chọn lab. JavaScript gửi JSON tới `/api/lab` và đọc `/api/status`.
-- camera.py: chỉ mở/đọc/đóng Camera v3 bằng Picamera2, bật autofocus liên tục.
-- detector.py: ảnh BGR → xám → cân bằng histogram → detectMultiScale → danh sách khung mặt.
-- service.py: một thread camera cho mọi người xem; đếm mặt → gọi hardware.update(count) → vẽ khung → nén JPEG → lưu kết quả mới nhất. Lock bảo vệ chuyển lab và điều khiển GPIO.
-- hardware/lab1_leds.py: chỉ chứa quy tắc LED.
-- hardware/lab2_servo.py: kết hợp số mặt và khoảng cách để điều khiển servo.
-- hardware/ultrasonic.py: đọc HC-SR04 với timeout, trả None khi mất Echo; không chờ vô hạn. Đo xung bằng Python trên Linux có sai số, cần kiểm tra ngưỡng trên Pi thật.
-- hardware/__init__.py: registry các lab.
-- config.py: chân GPIO, kích thước ảnh, xung servo, GPIO siêu âm, ngưỡng 10 cm và port.
+```text
+app.py                   Điểm chạy, vòng lặp và kết quả terminal
+camera.py                Đọc webcam USB qua OpenCV VideoCapture
+detector.py              Ảnh BGR → xám → cân bằng histogram → Haar Cascade
+config.py                GPIO LED, độ phân giải và thiết bị webcam
+hardware/__init__.py     Export class LedLab
+hardware/lab1_leds.py    Bật LED theo số mặt, tắt và đóng GPIO
+tests/test_labs.py       Kiểm tra LED, luồng xử lý và giải phóng thiết bị
+requirements-mock.txt    Ghi chú: mô phỏng chỉ dùng thư viện chuẩn
+.gitignore               Bỏ qua cache, venv và file sinh ra khi chạy
+```
 
-Camera → OpenCV → số mặt → hardware.update(số mặt). Cùng khung ảnh được vẽ và truyền đến `<img>` qua `/video_feed`; trạng thái đi riêng bằng JSON. Không chạy detection cho từng trình duyệt. Khi đóng trình duyệt, lab vẫn tiếp tục trên Pi. Nếu luồng gặp lỗi, LED tắt, servo ngắt PWM và web báo lỗi; sửa nguyên nhân rồi khởi chạy lại.
+Luồng chạy: `webcam → detector.detect(frame) → số mặt → leds.update(count) → terminal`. Chạy trong một vòng lặp, không cần thread hoặc nén JPEG. `PiCamera` giữ tên class từ phiên bản cũ nhưng hiện đọc webcam USB.
 
-| Endpoint | Phương thức | Công dụng |
-|---|---|---|
-| / | GET | Giao diện |
-| /video_feed | GET | MJPEG có khung mặt |
-| /api/status | GET | JSON số mặt, lab, phần cứng, lỗi |
-| /api/lab | POST | JSON `{"lab":"lab1"}` hoặc `{"lab":"lab2"}` |
-
-## 6. Thêm lab phần cứng mới
-
-Tạo `hardware/lab3_xxx.py` có class với 4 hàm: `__init__(mock=False)` khởi tạo phần cứng; `update(face_count)` thực hiện quy tắc; `status()` trả dict trạng thái JSON; `close()` đưa thiết bị về trạng thái an toàn và giải phóng GPIO. Chế độ mock không được truy cập phần cứng.
-
-Import class và thêm vào LABS trong hardware/__init__.py. CLI tự nhận lab mới. Thêm nút tương ứng trên HTML và phần hiển thị trạng thái; không cần sửa camera/detector/service. Cập nhật thông báo tên lab hợp lệ trong app.py nếu muốn mô tả lab mới. Tránh dùng chân GPIO đang được thiết bị khác sử dụng.
-
-## 7. Kiểm tra và lỗi thường gặp
+## Kiểm tra và lỗi thường gặp
 
 ```bash
-python -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 ```
 
-Các test dùng mô phỏng, kiểm tra quy tắc 0–6 mặt, khoảng cách dưới/đúng/trên 10 cm, mất dữ liệu cảm biến, đổi lab, JSON sai và phát MJPEG. Chưa thay thế thử nghiệm trên Pi thật. Thử thật: lần lượt đưa 0–5 người vào khung, rồi kiểm tra >5; chuyển sang Lab 2, thử có/không có mặt kết hợp vật cản ở <10, =10 và >10 cm; kiểm tra mất Echo thì servo về 0°; thử hai trình duyệt, sau đó Ctrl+C để xác nhận tắt LED/ngắt PWM.
+Test dùng thiết bị giả; cần thử camera và LED trên Pi thật trước buổi trình bày.
 
-- Thiếu cascade: `sudo apt install opencv-data`; hoặc đặt file OpenCV `haarcascade_frontalface_default.xml` trong thư mục models cạnh app.py.
-- Không import picamera2/cv2: tạo venv với --system-site-packages, không dùng venv cũ bị lỗi.
-- Camera busy: đóng rpicam và tiến trình app cũ. Camera không xuất hiện: kiểm tra cáp sau khi tắt nguồn.
-- GPIO Permission denied: kiểm tra nhóm gpio bằng `groups`; nếu nhóm tồn tại, `sudo usermod -aG gpio "$USER"`, rồi đăng xuất/đăng nhập lại.
-- Pi reset lúc servo quay: kiểm tra nguồn servo riêng và GND chung.
-- Code có null bytes / Structure needs cleaning: thay thẻ nhớ lỗi trước khi cài dự án.
+- Không mở được webcam: kiểm tra node, quyền truy cập và ứng dụng khác đang dùng camera.
+- Không đọc được ảnh: kiểm tra định dạng webcam hỗ trợ; thử bỏ thiết lập FPS trong `camera.py` hoặc giảm độ phân giải trong `config.py`.
+- Thiếu cascade: cài `opencv-data`, hoặc đặt `haarcascade_frontalface_default.xml` vào thư mục `models/` cạnh `app.py`.
+- Không import được `cv2`/`gpiozero`: kích hoạt venv tạo bằng `--system-site-packages`.
+- Không có mặt trong ảnh: thử đứng gần hơn, nhìn thẳng và tăng ánh sáng.
 
-Tài liệu kỹ thuật: https://datasheets.raspberrypi.com/camera/picamera2-manual.pdf và https://www.raspberrypi.com/documentation/accessories/camera.html
+Tài liệu OpenCV: https://docs.opencv.org/4.x/dd/d43/tutorial_py_video_display.html
