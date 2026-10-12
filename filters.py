@@ -1,6 +1,15 @@
 """Filter chỉ tác động lên vùng mặt; detection luôn dùng ảnh gốc."""
 
 FILTERS = ("none", "glasses", "grayscale", "blur", "pixelate")
+DEFAULT_FILTERS = ("grayscale", "blur", "glasses")
+
+
+def apply_filters(frame, boxes, names):
+    """Chồng ba hiệu ứng trên cùng vùng mặt, theo thứ tự đã chọn."""
+    result = frame
+    for name in names:
+        result = apply_filter(result, boxes, name)
+    return result
 
 
 def apply_filter(frame, boxes, name):

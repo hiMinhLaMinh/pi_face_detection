@@ -4,16 +4,17 @@ import logging
 import time
 
 from config import BUTTON_PIN, CAMERA_DEVICE, LED_PINS
-from filters import FILTERS, apply_filter
+from filters import DEFAULT_FILTERS, FILTERS, apply_filters
 from hardware import LedLab
 from hardware.shutter import ShutterButton
 from photos import save_photo
 
 
-def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_name="glasses", button_pin=BUTTON_PIN):
+def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_names=DEFAULT_FILTERS, button_pin=BUTTON_PIN):
     """Đếm mặt, cập nhật LED, terminal và cửa sổ webcam."""
-    if filter_name not in FILTERS:
-        raise ValueError(f"Filter không hợp lệ: {filter_name}")
+    if len(filter_names) != 3 or any(name not in FILTERS or name == "none" for name in filter_names):
+        raise ValueError("Chọn 3 filter: glasses, grayscale, blur hoặc pixelate")
+    filter_label = "+".join(filter_names)
     if button_pin in LED_PINS:
         raise ValueError("GPIO của nút bấm không được trùng GPIO LED")
     with ExitStack() as resources:
@@ -32,13 +33,14 @@ def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_name="glasses", b
                 resources.callback(cv2.destroyAllWindows)
                 window = "Face Detection - USB Webcam"
                 cv2.namedWindow(window, cv2.WINDOW_NORMAL)
+                cv2.resizeWindow(window, 1280, 720)
 
         print("MÔ PHỎNG" if mock else f"Webcam USB: {device}", flush=True)
         controls = "Nhấn Q trong cửa sổ, đóng cửa sổ hoặc Ctrl+C để dừng." if preview and not mock else "Nhấn Ctrl+C để dừng."
         print(f"Có {len(LED_PINS)} LED. {controls}", flush=True)
         if not mock:
             keyboard = " | S: chụp trong cửa sổ" if preview else ""
-            print(f"Filter: {filter_name} | Nút chụp: GPIO{button_pin}{keyboard}", flush=True)
+            print(f"Filters: {filter_label} | Nút chụp: GPIO{button_pin}{keyboard}", flush=True)
         started = time.monotonic()
         previous_count = None
         while True:
@@ -49,7 +51,7 @@ def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_name="glasses", b
                 frame = camera.read()
                 boxes = detector.detect(frame)
                 count = len(boxes)
-                filtered = apply_filter(frame, boxes, filter_name)
+                filtered = apply_filters(frame, boxes, filter_names)
                 capture = shutter.consume_press()
             leds.update(count)
             lit = sum(leds.status()["leds"])
@@ -64,7 +66,9 @@ def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_name="glasses", b
                 # Font OpenCV mặc định không hỗ trợ tiếng Việt có dấu.
                 cv2.putText(display, f"Faces: {count} | LEDs: {lit}/{len(LED_PINS)}",
                             (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv2.putText(display, f"Filter: {filter_name} | S: photo | Q: quit", (15, 60),
+                cv2.putText(display, f"Filters: {filter_label}", (15, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+                cv2.putText(display, "S: photo | Q: quit", (15, 90),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 cv2.imshow(window, display)
                 key = cv2.waitKey(1) & 0xFF
@@ -75,7 +79,7 @@ def run(mock=False, device=CAMERA_DEVICE, preview=True, filter_name="glasses", b
                     break
             if not mock and capture:
                 try:
-                    path = save_photo(filtered, filter_name)
+                    path = save_photo(filtered, "_".join(filter_names))
                     print(f"Đã lưu ảnh: {path}", flush=True)
                 except Exception:
                     logging.exception("Không lưu được ảnh; chương trình vẫn tiếp tục")
@@ -87,14 +91,17 @@ def main():
     parser.add_argument("--mock", action="store_true", help="Mô phỏng cả camera và LED")
     parser.add_argument("--device", default=CAMERA_DEVICE, help="Thiết bị webcam, ví dụ /dev/video0")
     parser.add_argument("--no-preview", action="store_true", help="Chỉ dùng terminal, phù hợp SSH không có màn hình")
-    parser.add_argument("--filter", choices=FILTERS, default="glasses", help="Filter cho các vùng mặt (mặc định: glasses)")
+    parser.add_argument("--filter", "--filters", nargs=3,
+                        choices=[name for name in FILTERS if name != "none"],
+                        default=DEFAULT_FILTERS,
+                        help="3 hiệu ứng theo thứ tự (mặc định: grayscale blur glasses)")
     parser.add_argument("--button-pin", type=int, choices=range(28), default=BUTTON_PIN, help="GPIO BCM của nút chụp (mặc định: 25)")
     args = parser.parse_args()
     if args.button_pin in LED_PINS:
         parser.error("GPIO của nút bấm không được trùng GPIO LED")
     try:
         run(mock=args.mock, device=args.device, preview=not args.no_preview,
-            filter_name=args.filter, button_pin=args.button_pin)
+            filter_names=args.filter, button_pin=args.button_pin)
     except KeyboardInterrupt:
         print("\nĐã dừng và giải phóng thiết bị.")
     except Exception:

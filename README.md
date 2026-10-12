@@ -51,41 +51,40 @@ python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 v4l2-ctl --list-devices
 v4l2-ctl -d /dev/video0 --list-formats-ext
-GPIOZERO_PIN_FACTORY=lgpio python app.py --filter glasses
+GPIOZERO_PIN_FACTORY=lgpio python app.py --filter grayscale blur glasses
 ```
 
 Webcam mặc định là `/dev/video0`. Nếu thiết bị thu hình ở node khác:
 
 ```bash
-GPIOZERO_PIN_FACTORY=lgpio python app.py --device /dev/video2 --filter pixelate
+GPIOZERO_PIN_FACTORY=lgpio python app.py --device /dev/video2 --filter grayscale pixelate glasses
 ```
 
 Mặc định chương trình mở cửa sổ webcam. Nếu chạy bằng SSH terminal không có giao diện đồ họa, dùng:
 
 ```bash
-GPIOZERO_PIN_FACTORY=lgpio python app.py --no-preview --filter blur
+GPIOZERO_PIN_FACTORY=lgpio python app.py --no-preview --filter grayscale blur glasses
 ```
 
 Trong cửa sổ, nhấn `S` để thử chụp bằng bàn phím, `Q` hoặc nút đóng để dừng. Sử dụng OpenCV có hỗ trợ GUI từ gói `python3-opencv`; bản `opencv-python-headless` không mở được cửa sổ.
 
 ## Chọn filter và lưu ảnh
 
-Chọn bằng `--filter` lúc chạy:
+Chọn đúng 3 hiệu ứng bằng `--filter` lúc chạy. Mặc định: `grayscale blur glasses`. Các hiệu ứng được chồng lên cùng vùng mặt theo thứ tự nhập; cửa sổ mở ở kích thước 1280×720:
 
 | Filter | Hiệu ứng trong vùng mặt |
 |---|---|
-| `glasses` | Kính đen (mặc định); vị trí ước lượng theo khung mặt |
+| `glasses` | Kính đen; vị trí ước lượng theo khung mặt |
 | `grayscale` | Đen trắng |
 | `blur` | Làm mờ |
 | `pixelate` | Ô pixel lớn |
-| `none` | Ảnh gốc |
 
 Filter tác động lên các vùng mặt đã phát hiện, phần nền giữ nguyên. Kính không dùng tọa độ mắt, nên có thể lệch khi mặt nghiêng. Khi không thấy mặt, ảnh chụp giữ nguyên.
 
 Nhấn nút GPIO25 hoặc phím `S` khi cửa sổ đang được chọn. Ảnh lưu là cả khung hình đã áp dụng filter, không kèm khung xanh, số đếm hoặc chữ hướng dẫn. Ví dụ:
 
 ```text
-photos/20261012_143012_123456_glasses_a1b2c3d4.jpg
+photos/20261012_143012_123456_grayscale_blur_glasses_a1b2c3d4.jpg
 ```
 
 Đường dẫn dựa trên vị trí `app.py`, không dựa trên thư mục terminal hiện tại. Tên chứa thời gian và mã ngẫu nhiên để tránh ghi đè; terminal báo đường dẫn sau khi lưu thành công. Nếu lưu lỗi, terminal báo lỗi và chương trình tiếp tục đếm mặt/bật LED. `.gitignore` bỏ qua ảnh chụp.
@@ -97,7 +96,7 @@ Ví dụ terminal (chỉ in dòng mới khi số mặt thay đổi):
 ```text
 Webcam USB: /dev/video0
 Có 5 LED. Nhấn Q trong cửa sổ, đóng cửa sổ hoặc Ctrl+C để dừng.
-Filter: glasses | Nút chụp: GPIO25 | S: chụp trong cửa sổ
+Filters: grayscale+blur+glasses | Nút chụp: GPIO25 | S: chụp trong cửa sổ
 Khuôn mặt: 0 | LED sáng: 0/5
 Khuôn mặt: 2 | LED sáng: 2/5
 Khuôn mặt: 6 | LED sáng: 5/5
