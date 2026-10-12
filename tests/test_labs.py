@@ -40,6 +40,7 @@ class LedTests(unittest.TestCase):
         lab = LedLab(mock=True)
         with (
             patch.dict(sys.modules, {
+                "cv2": Mock(),
                 "camera": SimpleNamespace(PiCamera=Mock(return_value=camera)),
                 "detector": SimpleNamespace(FaceDetector=Mock(return_value=detector)),
             }),
@@ -50,13 +51,44 @@ class LedTests(unittest.TestCase):
             patch("sys.stdout", new_callable=io.StringIO) as output,
         ):
             with self.assertRaisesRegex(RuntimeError, "camera disconnected"):
-                run(device="/dev/video2")
+                run(device="/dev/video2", preview=False)
             self.assertEqual([call.args[0] for call in update.call_args_list], [3, 0])
             self.assertIn("Khuôn mặt: 3 | LED sáng: 3/", output.getvalue())
             self.assertIn("Khuôn mặt: 0 | LED sáng: 0/", output.getvalue())
             close.assert_called_once()
         camera.close.assert_called_once()
         self.assertFalse(any(lab.status()["leds"]))
+
+    def test_preview_draws_faces_and_cleans_up_on_quit(self):
+        for key, visible in ((ord("q"), 1), (ord("Q"), 1), (-1, 0)):
+            with self.subTest(key=key, visible=visible):
+                camera = Mock()
+                camera.read.return_value = "frame"
+                detector = Mock()
+                detector.detect.return_value = [(10, 20, 40, 50)]
+                cv2 = Mock()
+                cv2.waitKey.return_value = key
+                cv2.getWindowProperty.return_value = visible
+                lab = LedLab(mock=True)
+                with (
+                    patch.dict(sys.modules, {
+                        "cv2": cv2,
+                        "camera": SimpleNamespace(PiCamera=Mock(return_value=camera)),
+                        "detector": SimpleNamespace(FaceDetector=Mock(return_value=detector)),
+                    }),
+                    patch("app.LedLab", return_value=lab),
+                    patch.object(lab, "close", wraps=lab.close) as close,
+                    patch("sys.stdout", new_callable=io.StringIO),
+                ):
+                    run()
+                    close.assert_called_once()
+                cv2.rectangle.assert_called_once_with("frame", (10, 20), (50, 70), (0, 255, 0), 2)
+                cv2.imshow.assert_called_once_with("Face Detection - USB Webcam", "frame")
+                overlay = cv2.putText.call_args_list[0].args[1]
+                self.assertEqual(overlay, f"Faces: 1 | LEDs: 1/{len(LED_PINS)}")
+                cv2.destroyAllWindows.assert_called_once()
+                camera.close.assert_called_once()
+                self.assertFalse(any(lab.status()["leds"]))
 
     def test_ctrl_c_cleans_up_mock_leds(self):
         lab = LedLab(mock=True)
